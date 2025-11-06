@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TRDP Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2rem;
+            background: #f9fafb;
+        }
+        h1 {
+            color: #1f2937;
+        }
+        section {
+            background: #ffffff;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+        }
+        button, input[type="file"], textarea {
+            margin-top: 0.5rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+        th {
+            background: #f3f4f6;
+        }
+        #status {
+            font-weight: bold;
+        }
+        .payload-input {
+            width: 100%;
+            min-height: 4rem;
+        }
+        .message {
+            color: #2563eb;
+            margin-top: 0.75rem;
+        }
+        .error {
+            color: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <h1>TRDP Lightweight Manager</h1>
+
+    <section>
+        <h2>Communication Control</h2>
+        <p>Status: <span id="status">Unknown</span></p>
+        <button id="startBtn">Start Communication</button>
+        <button id="stopBtn">Stop Communication</button>
+        <p id="statusMessage" class="message"></p>
+    </section>
+
+    <section>
+        <h2>Upload TRDP XML Configuration</h2>
+        <form id="configForm">
+            <input type="file" name="config" accept=".xml" required />
+            <button type="submit">Upload</button>
+        </form>
+        <p id="configMessage" class="message"></p>
+    </section>
+
+    <section>
+        <h2>Outgoing Payload</h2>
+        <label for="payloadInput">Payload (hex):</label>
+        <textarea id="payloadInput" class="payload-input" placeholder="e.g. 01020304"></textarea>
+        <button id="payloadBtn">Update Payload</button>
+        <p id="payloadMessage" class="message"></p>
+    </section>
+
+    <section>
+        <h2>Incoming Messages</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Source IP</th>
+                    <th>COM ID</th>
+                    <th>Dataset ID</th>
+                    <th>Payload (hex)</th>
+                </tr>
+            </thead>
+            <tbody id="messageTable">
+                <tr><td colspan="5">Waiting for messages...</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <script>
+        async function request(url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.message || 'Request failed');
+                }
+                return data;
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        async function refreshStatus() {
+            try {
+                const data = await request('/api/status');
+                document.getElementById('status').textContent = data.running ? 'Running' : 'Stopped';
+                document.getElementById('payloadInput').value = data.payload || '';
+            } catch (error) {
+                document.getElementById('status').textContent = 'Unavailable';
+            }
+        }
+
+        async function refreshMessages() {
+            try {
+                const data = await request('/api/messages');
+                const tbody = document.getElementById('messageTable');
+                tbody.innerHTML = '';
+                if (!data.messages || data.messages.length === 0) {
+                    const row = document.createElement('tr');
+                    const cell = document.createElement('td');
+                    cell.textContent = 'No new messages';
+                    cell.colSpan = 5;
+                    row.appendChild(cell);
+                    tbody.appendChild(row);
+                    return;
+                }
+                data.messages.forEach(message => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${message.timestamp}</td>
+                        <td>${message.source_ip}</td>
+                        <td>${message.com_id}</td>
+                        <td>${message.dataset_id}</td>
+                        <td>${message.payload_hex}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Unable to load messages', error);
+            }
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            const messageEl = document.getElementById('statusMessage');
+            try {
+                const result = await request('/api/start', { method: 'POST' });
+                messageEl.textContent = result.message;
+                messageEl.classList.remove('error');
+                refreshStatus();
+            } catch (error) {
+                messageEl.textContent = error.message;
+                messageEl.classList.add('error');
+            }
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', async () => {
+            const messageEl = document.getElementById('statusMessage');
+            try {
+                const result = await request('/api/stop', { method: 'POST' });
+                messageEl.textContent = result.message;
+                messageEl.classList.remove('error');
+                refreshStatus();
+            } catch (error) {
+                messageEl.textContent = error.message;
+                messageEl.classList.add('error');
+            }
+        });
+
+        document.getElementById('configForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const messageEl = document.getElementById('configMessage');
+            const formData = new FormData(event.target);
+            try {
+                const result = await request('/api/upload_config', {
+                    method: 'POST',
+                    body: formData
+                });
+                messageEl.textContent = result.message;
+                messageEl.classList.remove('error');
+            } catch (error) {
+                messageEl.textContent = error.message;
+                messageEl.classList.add('error');
+            }
+        });
+
+        document.getElementById('payloadBtn').addEventListener('click', async () => {
+            const messageEl = document.getElementById('payloadMessage');
+            const payload = document.getElementById('payloadInput').value.trim();
+            try {
+                const result = await request('/api/payload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: payload
+                });
+                messageEl.textContent = result.message;
+                messageEl.classList.remove('error');
+            } catch (error) {
+                messageEl.textContent = error.message;
+                messageEl.classList.add('error');
+            }
+        });
+
+        refreshStatus();
+        refreshMessages();
+        setInterval(refreshStatus, 5000);
+        setInterval(refreshMessages, 4000);
+    </script>
+</body>
+</html>
