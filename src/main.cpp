@@ -155,7 +155,11 @@ int main() {
             return;
         }
 
-        trdp_manager.update_outgoing_payload(payload);
+        if (!trdp_manager.update_outgoing_payload(payload)) {
+            res.status = 400;
+            res.set_content(json_message("error", "Invalid payload"), "application/json");
+            return;
+        }
         res.set_content(json_message("ok", "Payload updated"), "application/json");
     });
 
